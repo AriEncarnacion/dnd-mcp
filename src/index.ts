@@ -4,15 +4,11 @@ import { McpAgent } from "agents/mcp";
 import { Octokit } from "octokit";
 import { z } from "zod";
 import { GitHubHandler } from "./github-handler";
+import { Props } from "./utils";
+import { getUserById, updateUserInfo } from "./db";
 
 // Context from the auth process, encrypted & stored in the auth token
 // and provided to the DurableMCP as this.props
-type Props = {
-	login: string;
-	name: string;
-	email: string;
-	accessToken: string;
-};
 
 const ALLOWED_USERNAMES = new Set<string>([
 	// Add GitHub usernames of users who should have access to the image generation tool
@@ -21,11 +17,28 @@ const ALLOWED_USERNAMES = new Set<string>([
 
 export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 	server = new McpServer({
-		name: "Github OAuth Proxy Demo",
+		name: "DnD MCP Server",
 		version: "1.0.0",
 	});
 
 	async init() {
+		// userInfo get user info test
+		this.server.tool(
+			"userInfo",
+			"Get user info from GitHub, via Octokit",
+			{},
+			async () => {
+				return {
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify(this.props, null, 2),
+						},
+					],
+				};
+			},
+		);
+		
 		// Hello, world!
 		this.server.tool(
 			"add",
@@ -51,6 +64,95 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 						},
 					],
 				};
+			},
+		);
+
+		// Get user data from D1 database
+		this.server.tool(
+			"userGet",
+			"Get the authenticated user's information from the D1 database (excludes GitHub OAuth data)",
+			{},
+			async () => {
+				const user = await getUserById(this.env["DND-MCP-DB-BINDING"], this.props!.dbUserId);
+				if (!user) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: "User not found in database",
+							},
+						],
+						isError: true,
+					};
+				}
+
+				// Exclude sensitive fields if needed
+				const { id, github_id, github_login, name, email, username, avatar_url, bio, created_at, updated_at } = user;
+				return {
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify(
+								{ id, github_id, github_login, name, email, username, avatar_url, bio, created_at, updated_at },
+								null,
+								2,
+							),
+						},
+					],
+				};
+			},
+		);
+
+		// Update user information
+		this.server.tool(
+			"userUpdateInfo",
+			"Update the authenticated user's name, username, or email in the D1 database. Provide only the fields you want to update.",
+			{
+				name: z.string().describe("The user's display name").default(""),
+				username: z.string().describe("The user's unique username").default(""),
+				email: z.string().email().describe("The user's email address").default(""),
+			},
+			async ({ name, username, email }) => {
+				try {
+					// Only include non-empty fields in the update
+					const updateParams: { name?: string; username?: string; email?: string } = {};
+					if (name && name.trim()) updateParams.name = name;
+					if (username && username.trim()) updateParams.username = username;
+					if (email && email.trim()) updateParams.email = email;
+
+					if (Object.keys(updateParams).length === 0) {
+						return {
+							content: [
+								{
+									type: "text",
+									text: "No fields to update. Please provide at least one field (name, username, or email).",
+								},
+							],
+							isError: true,
+						};
+					}
+
+					const updatedUser = await updateUserInfo(this.env["DND-MCP-DB-BINDING"], this.props!.dbUserId, updateParams);
+
+					return {
+						content: [
+							{
+								type: "text",
+								text: JSON.stringify(updatedUser, null, 2),
+							},
+						],
+					};
+				} catch (error) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Failed to update user: ${error instanceof Error ? error.message : String(error)}`,
+							},
+						],
+						isError: true,
+					};
+				}
 			},
 		);
 
@@ -89,10 +191,7 @@ export class MyMCP extends McpAgent<Env, Record<string, never>, Props> {
 }
 
 export default new OAuthProvider({
-	// NOTE - during the summer 2025, the SSE protocol was deprecated and replaced by the Streamable-HTTP protocol
-	// https://developers.cloudflare.com/agents/model-context-protocol/transport/#mcp-server-with-authentication
 	apiHandlers: {
-		"/sse": MyMCP.serveSSE("/sse"), // deprecated SSE protocol - use /mcp instead
 		"/mcp": MyMCP.serve("/mcp"), // Streamable-HTTP protocol
 	},
 	authorizeEndpoint: "/authorize",

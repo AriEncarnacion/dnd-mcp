@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1759483081786,
+      "tag": "0000_loving_viper",
+      "breakpoints": true
+    }
+  ]
+}

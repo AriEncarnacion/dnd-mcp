@@ -45,6 +45,14 @@
 			"id": "dc7d36fe3dc24812b18ed38b9b8ba70f"
 		}
 	],
+	"d1_databases": [
+		{
+			"binding": "DND-MCP-DB-BINDING",
+			"database_name": "dnd-mcp",
+			"database_id": "caa47f26-538d-4b57-8916-8c4e20d7d19d",
+			"migrations_dir": "drizzle/migrations"
+		}
+	],
 	"ai": {
 		"binding": "AI"
 	},

@@ -8,6 +8,7 @@ import {
 	parseRedirectApproval,
 	renderApprovalDialog,
 } from "./workers-oauth-utils";
+import { upsertUser } from "./db";
 
 const app = new Hono<{ Bindings: Env & { OAUTH_PROVIDER: OAuthHelpers } }>();
 
@@ -92,7 +93,17 @@ app.get("/callback", async (c) => {
 
 	// Fetch the user info from GitHub
 	const user = await new Octokit({ auth: accessToken }).rest.users.getAuthenticated();
-	const { login, name, email } = user.data;
+	const { id, avatar_url, bio, login, name, email } = user.data;
+
+	// Upsert user to D1 database
+	const dbUser = await upsertUser(c.env["DND-MCP-DB-BINDING"], {
+		github_id: id,
+		github_login: login,
+		name,
+		email,
+		avatar_url,
+		bio,
+	});
 
 	// Return back to the MCP client a new token
 	const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
@@ -101,10 +112,14 @@ app.get("/callback", async (c) => {
 		},
 		// This will be available on this.props inside MyMCP
 		props: {
+			id,
 			accessToken,
 			email,
 			login,
 			name,
+			avatar_url,
+			bio,
+			dbUserId: dbUser.id,
 		} as Props,
 		request: oauthReqInfo,
 		scope: oauthReqInfo.scope,
